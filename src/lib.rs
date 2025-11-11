@@ -33,6 +33,11 @@ pub trait BoxButtons<B, R: ?Sized, A: alloc::alloc::Allocator = alloc::alloc::Gl
     // type Result;
     fn push(self: Box<Self, A>, buttons: B) -> Box<R, A>;
 }
+#[cfg(feature = "allocator-api")]
+pub trait BoxButtonsShim<B, R: ?Sized, A: alloc::alloc::Allocator> {
+    // type Result;
+    unsafe fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A>;
+}
 #[cfg(feature = "alloc")]
 const _: () = {
     #[cfg(not(feature = "allocator-api"))]
@@ -58,15 +63,10 @@ const _: () = {
         }
     }
     #[cfg(feature = "allocator-api")]
-    trait BoxButtonsShim<B, R: ?Sized, A: alloc::alloc::Allocator> {
-        // type Result;
-        fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A>;
-    }
-    #[cfg(feature = "allocator-api")]
     impl<B, R: ?Sized, A: alloc::alloc::Allocator, T: BoxButtons<B, R, A> + ?Sized>
         BoxButtonsShim<B, R, A> for T
     {
-        fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A> {
+        unsafe fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A> {
             let _box = unsafe { Box::from_raw_in(self, allocator) };
             BoxButtons::push(_box, buttons)
         }
@@ -92,7 +92,7 @@ const _: () = {
         fn push(self, buttons: B) -> Self::Result {
             let this: Box<dyn BoxButtonsShim<B, T, A> + 'a, A> = self;
             let (a, b) = Box::into_raw_with_allocator(this);
-            BoxButtonsShim::push(a, b, buttons)
+            unsafe { BoxButtonsShim::push(a, b, buttons) }
         }
     }
 };
