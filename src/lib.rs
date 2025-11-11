@@ -23,19 +23,18 @@ pub trait Buttons<B> {
 }
 #[cfg(feature = "alloc")]
 #[cfg(not(feature = "allocator-api"))]
+///Automatically implemented on types which implement `Buttons`
 pub trait BoxButtons<B, R: ?Sized> {
     // type Result;
+    #[doc(hidden)]
     fn push(self: Box<Self>, buttons: B) -> Box<R>;
 }
 #[cfg(feature = "alloc")]
 #[cfg(feature = "allocator-api")]
+///Automatically implemented on types which implement `Buttons`
 pub trait BoxButtons<B, R: ?Sized, A: alloc::alloc::Allocator = alloc::alloc::Global> {
     // type Result;
-    fn push(self: Box<Self, A>, buttons: B) -> Box<R, A>;
-}
-#[cfg(feature = "allocator-api")]
-pub trait BoxButtonsShim<B, R: ?Sized, A: alloc::alloc::Allocator> {
-    // type Result;
+    #[doc(hidden)]
     unsafe fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A>;
 }
 #[cfg(feature = "alloc")]
@@ -62,25 +61,16 @@ const _: () = {
         impl<B, T: Buttons<B, Result: Unsize<R>>, R: ?Sized, A: alloc::alloc::Allocator>
             BoxButtons<B, R, A> for T
         {
-            fn push(self: Box<Self, A>, buttons: B) -> Box<R, A> {
+            unsafe fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A> {
                 use core::alloc::Layout;
 
-                let (rp, a) = Box::into_raw_with_allocator(self);
-                let r = unsafe { core::ptr::read(rp) };
+                // let (rp, a) = Box::into_raw_with_allocator(self);
+                let r = unsafe { core::ptr::read(self) };
                 unsafe {
                     use core::ptr::NonNull;
-                    a.deallocate(NonNull::new_unchecked(rp.cast()), Layout::new::<T>())
+                    allocator.deallocate(NonNull::new_unchecked(self.cast()), Layout::new::<T>())
                 };
-                Box::new_in(Buttons::push(r, buttons), a) as Box<R, A>
-            }
-        }
-
-        impl<B, R: ?Sized, A: alloc::alloc::Allocator, T: BoxButtons<B, R, A> + ?Sized>
-            BoxButtonsShim<B, R, A> for T
-        {
-            unsafe fn push(self: *mut Self, allocator: A, buttons: B) -> Box<R, A> {
-                let _box = unsafe { Box::from_raw_in(self, allocator) };
-                BoxButtons::push(_box, buttons)
+                Box::new_in(Buttons::push(r, buttons), allocator) as Box<R, A>
             }
         }
 
@@ -88,14 +78,14 @@ const _: () = {
             'a,
             B,
             A: alloc::alloc::Allocator,
-            T: Unsize<dyn BoxButtonsShim<B, T, A> + 'a> + ?Sized + 'a,
+            T: Unsize<dyn BoxButtons<B, T, A> + 'a> + ?Sized + 'a,
         > Buttons<B> for Box<T, A>
         {
             type Result = Box<T, A>;
             fn push(self, buttons: B) -> Self::Result {
-                let this: Box<dyn BoxButtonsShim<B, T, A> + 'a, A> = self;
+                let this: Box<dyn BoxButtons<B, T, A> + 'a, A> = self;
                 let (a, b) = Box::into_raw_with_allocator(this);
-                unsafe { BoxButtonsShim::push(a, b, buttons) }
+                unsafe { BoxButtons::push(a, b, buttons) }
             }
         }
     };
